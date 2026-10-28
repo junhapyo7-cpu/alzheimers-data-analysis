@@ -1,0 +1,502 @@
+---
+title: "Personal Project"
+author: "Junha Pyo"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+#Put Necessary Libraries Here
+# GLOBAL SETTINGS: This chunk ensures NO code, messages, or warnings appear in the HTML.
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  message = FALSE, 
+  warning = FALSE,
+  fig.align = 'center'
+)
+
+# Load libraries silently
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+library(xtable)
+suppressPackageStartupMessages(library(funModeling))
+suppressPackageStartupMessages(library(skimr))
+suppressPackageStartupMessages(library(readxl))
+suppressPackageStartupMessages(library(readr))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(DataExplorer))
+suppressPackageStartupMessages(library(dlookr))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(gt))
+suppressPackageStartupMessages(library(ggridges))
+suppressPackageStartupMessages(library(PerformanceAnalytics))
+library(tidymodels)
+library(vip)
+library(yardstick)
+library(forcats)
+library(rpart.plot)   # optional: nice decision tree plots
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+options(scipen = 999)  # big number = strongly discourages scientific notation
+```
+
+
+# INTRODUCTION
+
+Alzheimer’s disease is one of the most pressing public health challenges of the 21st century, affecting millions of individuals worldwide and placing significant emotional and financial strain on families and healthcare systems. Despite decades of research, there is still no cure, making early detection and prevention critically important. With the increasing availability of large-scale health datasets, there is a unique opportunity to uncover patterns that may help identify individuals at risk earlier and guide more effective interventions.
+
+This study explores which variables are most strongly associated with the onset of Alzheimer’s disease, with a particular focus on how combinations of demographic, clinical, and behavioral factors interact. Rather than examining variables in isolation, this approach seeks to identify meaningful patterns across multiple dimensions of health, which could improve predictive modeling and risk assessment. Understanding these relationships is valuable not only for researchers, but also for healthcare providers aiming to deliver more personalized and proactive care.
+
+In addition, this analysis investigates whether lifestyle changes can meaningfully reduce the risk of developing Alzheimer’s disease, even when accounting for non-modifiable factors such as age or genetic predisposition. This question is especially compelling because it shifts the focus from treatment to prevention—highlighting actions individuals can take to potentially delay or reduce disease onset. If strong associations are found, these insights could inform public health recommendations and empower individuals to make more informed decisions about their long-term health.
+
+These questions are important to both data owners and the broader global community. For healthcare organizations and researchers, identifying key risk factors and protective behaviors can improve resource allocation, screening strategies, and early intervention programs. For society at large, understanding how everyday choices influence Alzheimer’s risk has the potential to reduce disease prevalence and improve quality of life. By exploring these relationships, this study aims to contribute to a deeper understanding of Alzheimer’s disease and inspire further research into prevention and early detection strategies.
+
+
+
+# DATA
+
+The data set used in this project was created by Rabie El Kharoua and is a synthetic dataset designed for educational purposes. Even though the data does not reflect any real patient, it was generated in a way that reflects realistic scenarios associated with the disease of Alzheimer’s and some other relevant medical parameters. The database includes 2,149 observations, where each entry indicates a single patient. Once the data is cleaned, irrelevant variables like patient IDs and doctors are excluded from the analysis.
+
+The data set contains an extensive variety of variables on patient demography, health status, lifestyle, and cognitive performance. Some crucial variables include demographic variables such as age, gender, race, and education. Other variables involve health status, like cardiovascular diseases, diabetes, hypertension, and depression. In addition to some biological measurements like blood pressure and cholesterol levels. The aim of including all these variables is to get more insights into the backgrounds of patients and Alzheimer’s disease.
+
+For the first research question, which concentrates on variables relating to Alzheimer’s disease,
+the key variables will be diagnosis, mmse, functional assessment, adl, and behavioral_problems. Diagnosis is a variable used to indicate if a patient suffers from Alzheimer’s disease, and therefore, it will act as an outcome variable for our study. Mmse
+variable reflects cognitive abilities, whereas functional assessment and adl reflect the functional capability of the patient. The last variable, behavioral problems, is used to reflect any change that occurs due to symptoms of the disease.
+
+As for the second research question, which focuses on lifestyle-related characteristics, the critical variables are physical_activity, diet_quality, sleep_quality, alcohol_consumption, and bmi.
+
+The specified variables are considered modifiable lifestyle characteristics that might be associated with an Alzheimer's diagnosis. All the specified variables except for diagnosis and behavioral_problems are numeric variables; otherwise, the specified variables are dichotomous ("yes" or "no"). To get a better idea of the data structure, the descriptive table and descriptive figure are applied.
+
+```{r, echo = FALSE}
+df <- read.csv("alzheimers_disease_data.csv")
+
+df <- janitor :: clean_names(df)
+
+df$doctor_in_charge <- NULL
+df$patient_id <- NULL
+
+
+binary_vars <- c(
+  "smoking", "family_history_alzheimers", "cardiovascular_disease", 
+  "diabetes", "depression", "head_injury", "hypertension", 
+  "memory_complaints", "behavioral_problems", "confusion", 
+  "disorientation", "personality_changes", "difficulty_completing_tasks", 
+  "forgetfulness", "diagnosis"
+)
+
+df <- df |>
+  mutate(
+    # Handle the binary "no/yes" variables in one go
+    across(all_of(binary_vars), ~factor(.x, levels = c(0, 1), labels = c("no", "yes"))),
+    
+    # Handle the unique multi-level variables
+    gender = factor(gender, levels = c(0, 1), labels = c("male", "female")),
+    ethnicity = factor(ethnicity, levels = c(0, 1, 2, 3), 
+                       labels = c("caucasian", "african american", "asian", "other")),
+    education_level = factor(education_level, levels = c(0, 1, 2, 3), 
+                             labels = c("none", "high school", "bachelors", "higher")),
+  )
+
+numeric_vars <- c(
+  "age",
+  "bmi",
+  "alcohol_consumption",
+  "physical_activity",
+  "diet_quality",
+  "sleep_quality",
+  "systolic_bp",
+  "diastolic_bp",
+  "mmse",
+  "adl",
+  "functional_assessment"
+)
+
+num_df <- df |>
+  select(all_of(numeric_vars))
+
+df |> 
+  filter(diagnosis == "yes") |>
+  summarise(
+    median_age = median(age, na.rm = TRUE),
+    spread_age = IQR(age, na.rm = TRUE),
+    median_systolic_bp = median(systolic_bp, na.rm = TRUE),
+    median_diastolic_bp = median(diastolic_bp, na.rm = TRUE),
+    median_cholesterol = median(cholesterol_total, na.rm = TRUE),
+    median_mmse = median(mmse, na.rm = TRUE),
+    spread_mmse = IQR(mmse, na.rm = TRUE),
+    median_adl = median(adl, na.rm = TRUE)
+    
+  ) |> 
+  pivot_longer(everything(), names_to = "Statistic", values_to = "Values")|>
+    gt()
+```
+
+This figure represents a summary table of the typical patient with Alzheimer's disease in this data set. MMSE scores range from 0-30, with higher scores indicating better cognitive ability. The median score of a patient with Alzheimer's in this data set is 11, potentially indicating that this would be a variable of interest to use. 
+
+```{r, echo = FALSE}
+as.data.frame(freq(df$diagnosis))$Freq
+```
+
+This table indicates the percentage of people with and without Alzheimer's disease in this data set. Our naive benchmark being 35.37%. 
+
+
+# RESULTS
+ 
+Our two questions to answer our business problem was what variables are greatly associated with an Alzheimer's diagnosis and do lifestyle markers have an effect on an Alzheimer's diagnosis. Before we ran specific tests and modeling techniques to help answer our categorical problem, we decided to look into what the typical patient with Alzheimer's in this dataset looked like utilizing a summary table as was provided in our data section. 
+
+We then decided to utilize a model which would give us factors that were most significantly correlated with an alzheimer's diagnosis. Essentially people who had alzheimer's.
+
+```{r, echo = FALSE}
+diagnosis_model <- glm(
+  diagnosis ~ age + gender + ethnicity + memory_complaints +
+    mmse + functional_assessment + adl + confusion + forgetfulness + 
+    depression + family_history_alzheimers + cardiovascular_disease + 
+    hypertension + behavioral_problems + personality_changes + 
+    difficulty_completing_tasks + bmi + physical_activity + 
+    alcohol_consumption + diet_quality + systolic_bp + 
+    diastolic_bp + cholesterol_total + cholesterol_ldl + cholesterol_hdl, 
+  data = df,
+  family = binomial
+) 
+
+summary(diagnosis_model)
+```
+As one can see, the greatest correlative variables to an Alzheimer's diagnosis was functional assessments, adl, and mmse scores. MMSE is a nationally used standard mental assessment, where lower scores indicate lesser mental functionality. ADL was a lifestyle assessment. The author could not provide specific details besides a lower score indicating a poorer lifestyle for this particular assessment. Interestingly, besides factors we would predict to be greatly correlative with an Alzheimer;s diagnosis, such as memory complaints or behavior problems, we found that there was some significant correlation with low-density lipoprotein cholesterol levels, possibly leading to speculation that diet could have a relation to an Alzheimer's diagnosis. 
+
+Due to the fact that MMSE scores had a higher level of signficance, we decided to run a t.test between MMSE scores and an Alzheimer's diagnosis. 
+
+```{r, echo = FALSE}
+t.test(mmse ~ diagnosis, data = df)
+```
+Since the p-value is significantly below 0.05, the null can be rejected and we can conclude that there is a significant association between MMSE scores and an Alzheimer's diagnosis. To better visualize this, we plotted a boxplot.
+
+```{r, echo = FALSE}
+ggplot(data = df, aes(x = diagnosis, y = mmse, fill = diagnosis)) + geom_boxplot() + labs(
+  title = "MMSE Scores of Patiens by AD Status",
+  x = "Diagnosis",
+  y = "MMSE Scores"
+)
+```
+
+Since we were able to narrow down variables most associated with an Alzheimer's diagnosis, we created a new data frame labeled "lifestyle_vars" that only had metrics related to lifestyle such as sleep_quality, diet_quality, cholesterol levels, and found the greatest difference in sleep_quality and cholesterol_total when it came to patients with Alzheimer's and patients without. 
+
+```{r, echo = FALSE}
+ggplot(data = df, aes(x = diagnosis, y = cholesterol_ldl, fill = diagnosis)) + geom_boxplot() + labs(
+  title = "Cholesterol of Patiens by AD Status",
+  x = "Diagnosis",
+  y = "Cholesterol ldl"
+)
+
+ggplot(data = df, aes(x = diagnosis, y = sleep_quality, fill = diagnosis)) + geom_boxplot() + labs(
+  title = "Sleep Quality of Patiens by AD Status",
+  x = "Diagnosis",
+  y = "Sleep Quality"
+)
+```
+Both these graphs show that patients with Alzheimer's had lower sleep quality scores and lower density cholesterol levels. 
+
+To quantify this significance we ran a t-test on  the relation between sleep_quality and Alzheimer's diagnosis as well.
+
+```{r, echo = FALSE}
+t.test(sleep_quality ~ diagnosis, data = df)
+```
+Since the p-value is significantly below 0.05, the null can be rejected and we can conclude that there is a significant association between sleep quality scores and an Alzheimer's diagnosis.
+
+Lastly we looked at multiple predictive models to assess which one would be best to use to predict an Alzheimer's diagnosis. We also wanted to see whether each model had differences when it came to the variables it thought were most important in predicting that someone had Alzheimer's. 
+
+The first one we looked at was decision trees
+
+```{r, echo = FALSE}
+set.seed(123)
+
+df_split <- initial_split(df, prop = 0.80, strata = diagnosis)
+df_train <- training(df_split)
+df_test  <- testing(df_split)
+
+# Relevel: set "yes" (churned) as the positive/event class throughout
+df_test  <- df_test  |> mutate(diagnosis = fct_relevel(diagnosis, "yes"))
+df_train <- df_train |> mutate(diagnosis = fct_relevel(diagnosis, "yes"))
+
+cat("Training rows:", nrow(df_train), "| Test rows:", nrow(df_test))
+
+set.seed(123)
+df_folds <- vfold_cv(df_train, v = 10, strata = diagnosis)
+
+shared_rec <- recipe(diagnosis ~ ., data = df_train) |>
+  step_zv(all_predictors()) |>                    # Remove zero-variance predictors
+  step_impute_median(all_numeric_predictors()) |>  # Impute numeric NAs with median
+  step_impute_mode(all_nominal_predictors()) |>    # Impute factor NAs with mode
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)  # One-hot encode factors
+
+class_metrics <- metric_set(roc_auc, accuracy, bal_accuracy, kap, mn_log_loss,
+                             yardstick:: sensitivity, yardstick:: specificity)
+
+dt_spec <- decision_tree(
+  mode            = "classification",
+  cost_complexity = tune(),
+  tree_depth      = tune(),
+  min_n           = tune()
+) |>
+  set_engine("rpart")
+
+dt_wf <- workflow() |>
+  add_recipe(shared_rec) |>
+  add_model(dt_spec)
+set.seed(123)
+
+dt_grid <- grid_latin_hypercube(
+  cost_complexity(range = c(-4, -1)),
+  tree_depth(range = c(2L, 20L)),
+  min_n(range = c(2L, 50L)),
+  size = 30
+)
+
+dt_tune <- tune_grid(
+  dt_wf,
+  resamples = df_folds,
+  grid      = dt_grid,
+  metrics   = class_metrics,
+  control   = control_grid(save_pred = TRUE)
+)
+
+dt_best       <- select_best(dt_tune, metric = "mn_log_loss")
+final_dt_wf   <- finalize_workflow(dt_wf, dt_best)
+final_dt_fit  <- fit(final_dt_wf, data = df_train)
+
+dt_test_prob  <- predict(final_dt_fit, df_test, type = "prob")  |>
+  bind_cols(df_test |> select(diagnosis))
+
+dt_test_class <- predict(final_dt_fit, df_test, type = "class") |>
+  bind_cols(df_test |> select(diagnosis))
+
+dt_results <- bind_cols(dt_test_prob, dt_test_class |> select(.pred_class)) |> 
+  select(diagnosis, .pred_class, everything())
+
+# Confusion Matrix
+dt_test_class |> yardstick:: conf_mat(truth = diagnosis, estimate = .pred_class)
+rpart_engine <- extract_fit_engine(final_dt_fit)
+rpart.plot::rpart.plot(rpart_engine, roundint = FALSE, main = "Best Decision Tree")
+dt_vi <- tibble(
+  Variable   = names(rpart_engine$variable.importance),
+  Importance = as.numeric(rpart_engine$variable.importance)
+) |>
+  arrange(desc(Importance)) |>
+  slice_head(n = 15) |>
+  mutate(
+    pct   = 100 * Importance / sum(Importance),
+    Model = "Decision Tree"
+  )
+
+ggplot(dt_vi, aes(x = reorder(Variable, pct), y = pct)) +
+  geom_col(fill = "lavender") +
+  coord_flip() +
+  labs(title = "Decision Tree — Variable Importance (%)", x = NULL, y = "Importance (%)") +
+  theme_minimal()
+
+```
+Similar to our significance tests, the decision tree model found that the most important variables to predict an Alzheimer's diagnsois was adl, mmse, and functional_assessment scores, in that respective order. 
+
+We then utilized an XG boost and AD Boost predictive model. 
+
+```{r, echo = FALSE}
+xgb_spec <- boost_tree(
+  mode          = "classification",
+  trees         = tune(),
+  tree_depth    = tune(),
+  learn_rate    = tune(),
+  min_n         = tune(),
+  loss_reduction = tune(),
+  sample_size   = tune()
+) |>
+  set_engine("xgboost", nthread = 1)
+
+xgb_wf <- workflow() |>
+  add_recipe(shared_rec) |>
+  add_model(xgb_spec)
+set.seed(123)
+
+xgb_grid <- grid_latin_hypercube(
+  trees(range         = c(50L, 500L)),
+  tree_depth(range    = c(3L, 8L)),
+  learn_rate(range    = c(-3, -1)),   # log10 scale: 0.001 to 0.1
+  min_n(range         = c(2L, 20L)),
+  loss_reduction(range= c(-5, 1.5)), # log10 scale
+  sample_size = sample_prop(range = c(0.5, 1.0)),
+  size = 30
+)
+
+xgb_tune <- tune_grid(
+  xgb_wf,
+  resamples = df_folds,
+  grid      = xgb_grid,
+  metrics   = class_metrics,
+  control   = control_grid(save_pred = TRUE)
+)
+
+xgb_best      <- select_best(xgb_tune, metric = "mn_log_loss")
+final_xgb_wf  <- finalize_workflow(xgb_wf, xgb_best)
+final_xgb_fit <- fit(final_xgb_wf, data = df_train)
+
+xgb_test_prob  <- predict(final_xgb_fit, df_test, type = "prob") |>
+  bind_cols(df_test |> select(diagnosis))
+
+xgb_test_class <- predict(final_xgb_fit, df_test, type = "class") |>
+  bind_cols(df_test |> select(diagnosis))
+
+xgb_vi <- vip::vi(extract_fit_engine(final_xgb_fit)) |>
+  slice_head(n = 15) |>
+  mutate(
+    pct   = 100 * Importance / sum(Importance),
+    Model = "XGBoost"
+  )
+
+ggplot(xgb_vi, aes(x = reorder(Variable, pct), y = pct)) +
+  geom_col(fill = "pink") +
+  coord_flip() +
+  labs(title = "XGBoost — Variable Importance (Gain %)", x = NULL, y = "Importance (%)") +
+  theme_minimal()
+```
+
+There were only slight differences in levels of importance when it came to the decion tree model and the XG boost model. With the top two variables of prediction for decision tree being adl and mmse scores and for XG boost being adl and functional_assessment. 
+
+```{r, echo = FALSE}
+ada_spec <- boost_tree(
+  mode  = "classification",
+  trees = tune(),
+  min_n = tune()
+) |>
+  set_engine("C5.0")
+
+ada_wf <- workflow() |>
+  add_recipe(shared_rec) |>
+  add_model(ada_spec)
+set.seed(123)
+
+ada_grid <- grid_latin_hypercube(
+  trees(range = c(5L, 150L)),
+  min_n(range = c(2L, 40L)),
+  size = 25
+)
+
+ada_tune <- tune_grid(
+  ada_wf,
+  resamples = df_folds,
+  grid      = ada_grid,
+  metrics   = class_metrics,
+  control   = control_grid(save_pred = TRUE)
+)
+
+ada_best      <- select_best(ada_tune, metric = "mn_log_loss")
+final_ada_wf  <- finalize_workflow(ada_wf, ada_best)
+final_ada_fit <- fit(final_ada_wf, data = df_train)
+
+ada_test_prob  <- predict(final_ada_fit, df_test, type = "prob") |>
+  bind_cols(df_test |> select(diagnosis))
+
+ada_test_class <- predict(final_ada_fit, df_test, type = "class") |>
+  bind_cols(df_test |> select(diagnosis))
+
+ada_vi <- vip::vi(extract_fit_engine(final_ada_fit)) |>
+  slice_head(n = 15) |>
+  mutate(
+    pct   = 100 * Importance / sum(Importance),
+    Model = "AdaBoost (C5.0)"
+  )
+
+ggplot(ada_vi, aes(x = reorder(Variable, pct), y = pct)) +
+  geom_col(fill = "#FF7F00") +
+  coord_flip() +
+  labs(title = "AdaBoost (C5.0):Variable Importance(%)", x = NULL, y = "Importance (%)") +
+  theme_minimal()
+```
+
+Once again, similar to the previous two models run, the AG Boost also shows the greatest predictor to be mmse, functional_assessment. The main different being the AG Boost greatly utilizing memory_complaints as a variable of importance when making the prediction. 
+
+Lastly, we wanted to compare each model used to see which one, compared against the rest, should be used to best predict an Alzheimer's diagnosis. 
+
+```{r, echo = FALSE}
+get_metrics_tidy <- function(fit_wf, test_data, model_name, pos_class = "yes") {
+  prob_preds  <- predict(fit_wf, test_data, type = "prob")  |>
+    bind_cols(test_data |> select(diagnosis))
+  class_preds <- predict(fit_wf, test_data, type = "class") |>
+    bind_cols(test_data |> select(diagnosis))
+
+  pos_col <- paste0(".pred_", pos_class)
+
+  tibble(
+    Model       = model_name,
+    AUC         = prob_preds  |> roc_auc(truth = diagnosis, !!sym(pos_col),
+                                          event_level = "first") |> pull(.estimate),
+    Accuracy    = class_preds |> accuracy(truth = diagnosis, estimate = .pred_class) |>
+                    pull(.estimate),
+    Bal_Acc     = class_preds |> bal_accuracy(truth = diagnosis, estimate = .pred_class) |>
+                    pull(.estimate),
+    Kappa       = class_preds |> kap(truth = diagnosis, estimate = .pred_class) |>
+                    pull(.estimate),
+    Log_Loss    = prob_preds  |> mn_log_loss(truth = diagnosis, !!sym(pos_col),
+                                              event_level = "first") |> pull(.estimate),
+    Sensitivity = class_preds |> yardstick:: sensitivity(truth = diagnosis, estimate = .pred_class,
+                                              event_level = "first") |> pull(.estimate),
+   Specificity = class_preds |> yardstick::specificity(truth = diagnosis, estimate = .pred_class,
+                                              event_level = "first") |> pull(.estimate)
+  )
+}
+
+metrics_dt  <- get_metrics_tidy(final_dt_fit,  df_test, "Decision Tree")
+metrics_xgb <- get_metrics_tidy(final_xgb_fit, df_test, "XGBoost")
+metrics_ada <- get_metrics_tidy(final_ada_fit, df_test, "AdaBoost (C5.0)")
+
+
+comparison_df <- bind_rows(metrics_dt,metrics_xgb, metrics_ada) |>
+  arrange(desc(AUC))
+
+comparison_df |>
+  mutate(across(where(is.numeric), ~ round(.x, 4))) |>
+  arrange(desc(AUC)) |>
+  gt() |>
+  tab_header(
+    title    = md("**Final Model Scorecard**"),
+    subtitle = md("*Ranked by AUC (highest to lowest)*")
+  ) |>
+  data_color(
+    columns = AUC,
+    method  = "numeric",
+    palette = "RdYlGn"
+  ) |>
+  data_color(
+    columns = Log_Loss,
+    method  = "numeric",
+    palette = "RdYlGn",
+    reverse = TRUE   # Lower Log Loss = better = green
+  ) |>
+  tab_options(table.font.size = 13) |>
+  cols_label(
+    Bal_Acc  = "Bal. Acc.",
+    Log_Loss = "Log Loss ↓"
+  )
+```
+
+The results show that XGBoost is the best overall model to use when predicting Alzheimer's based on the statistics and metrics provided in this data set. We can conclude that the variables generally most associated with an Alzheimer's diagnosis are mmse, functional_assessment, and adl scores. And more specific to lifestyle metrics, sleep_quality and low density cholesterol levels. 
+
+
+
+# CONCLUSION
+
+The main question this data exploration sought to answer was how can we predict if someone has Alzheimer's. The final results showed us that cognitive and functional signifiers like MMSE, functional assessment scores, and memory complaints were the best at predicting if
+a person would have Alzheimer's. Furthermore, from the models we made AdaBoost was shown to perform the best overall with 94.8 percent ROC AUC, 94.8 percent accuracy, and most importantly for this data set 93.81 balanced accuracy. These model results show we can predict reasonably well if a patient does or does not have Alzheimer's.
+
+These findings are important as with such a high balanced accuracy score it shows that we have built a model that can properly discriminate between the majority class of people without Alzheimer's and the minority of those with Alzheimer's. This means there are practical real world applications of using this model to help retroactively check for undiagnosed Alzheimer's and then use this information to help undiagnosed people with Alzheimer's seek professional help. The factors that we found that are also highly correlated with Alzheimer's means medical professionals can now be on the look out for specific behavioral patterns as an additional tool to make sure some diagnoses do not get missed. Furthermore, looking at some of the less heavily correlated factors like physical fitness and age we can use them as preventative measures encouraging people from a young age to be more physically fit and eat better as a preventative measure against Alzheimer's.
+
+One way this work could be continued is by making the decision tree into a questionnaire that could be taken at doctors appointments to be used as a quick screening tool. In order to make this use more reasonable however more data should be collected. This should come from a bigger longitudinal study in order for us to see how factors earlier in life might have an influence in Alzheimer's. Another important piece of data that could be collected is more physiological data like blood work, genetic markers, and brian imaging to be able to look at this problem from new angles that the data currently does not provide. This could give us a better sense of where Alzheimer's comes from, for example if it is more genetic or something caused by lifestyle choices. With more data about the person I believe I would become more reasonable as well to do more complicated modeling such as neural networks in order to pick up on potential small and less obvious connections between our variables and Alzheimer's.
+
+From what our models have shown us though the results of this exploration are very much expected. A lot of the things that we saw were heavily predictive of Alzheimer's where things that are often seen as symptoms of Alzheimer's. While this seems trivial at first people should care about this because the results of the model show that these rather obvious indicators when pulled together in a data model give us usable insight in diagnosis of Alzheimer's. Furthermore this data analysis shows the potential to draw more insights into the causes of Alzheimer's if given more data and time to collect this data. This can then help inform public health police allowing for less people to be negatively impacted by Alzheimer's.
+
+
+
+
+
