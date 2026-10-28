@@ -79,8 +79,3 @@ View R Markdown Source Code
 Skills Demonstrated
 
 Data Cleaning • Exploratory Data Analysis • Statistical Programming • Data Visualization • R Markdown • Analytical Interpretation
-
-Author
-
-Junha Pyo
-University of North Carolina at Chapel H
